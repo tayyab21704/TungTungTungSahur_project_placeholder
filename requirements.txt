@@ -10,3 +10,9 @@ langchain-tavily
 langchain-groq
 pytz
 boto3
+bson
+pymongo
+python-jose
+passlib
+pydantic[email]
+python-multipart
