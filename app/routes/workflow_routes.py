@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage
 from app.authentication.auth import get_current_user
 from app.database.mongodb import get_collection
 from app.database.redis import get_redis_client
-from app.services.graph import aws_graph, GraphState
+from app.services.graph import get_aws_graph, GraphState
 from app.utils.logging_decorator import logging_decorator, logger
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
@@ -38,6 +38,7 @@ async def create_plan(
 ):
     """Create execution plan from user prompt"""
     try:
+        aws_graph = get_aws_graph()
         session_id = str(uuid.uuid4())
         
         # Initialize state
@@ -149,6 +150,7 @@ async def execute_workflow(
 ):
     """Execute the confirmed workflow with provided inputs"""
     try:
+        aws_graph = get_aws_graph()
         # Get workflow data
         workflow_data = workflow_collection.find_one({"session_id": request.session_id})
         if not workflow_data:

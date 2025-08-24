@@ -345,6 +345,9 @@ class AttachInstanceProfileInput(BaseModel):
     instance_id: str
     instance_profile_name: str = Field(..., description="The name of the IAM instance profile to attach.")
 
+class ListS3BucketsInput(BaseModel):
+    aws_access_key_id: str = Field(..., description="AWS access key ID for authentication.")
+    aws_secret_access_key: str = Field(..., description="AWS secret access key for authentication.")
 
 class AttachInstanceProfileOutput(BaseModel):
     """Output after attaching the instance profile."""
@@ -375,7 +378,6 @@ def get_all_aws_tools():
 
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
-@logging_decorator()
 def list_s3_buckets(aws_access_key_id: str, aws_secret_access_key: str):
     """List all S3 buckets in the AWS account."""
     s3_client = boto3.client(
@@ -389,7 +391,6 @@ def list_s3_buckets(aws_access_key_id: str, aws_secret_access_key: str):
 
 
 @tool(args_schema=GetBucketRegionInput, return_direct=True)
-@logging_decorator()
 def get_bucket_region(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str) -> GetBucketRegionOutput:
     """Get the region of a specific S3 bucket."""
     s3_client = boto3.client(
@@ -402,7 +403,6 @@ def get_bucket_region(aws_access_key_id: str, aws_secret_access_key: str, bucket
     return GetBucketRegionOutput(bucket_name=bucket_name, region=region)
 
 @tool(args_schema=SetBucketPolicyInput, return_direct=True)
-@logging_decorator()
 def set_s3_bucket_policy(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str, policy_type: str, custom_policy: Optional[dict] = None):
     s3_client = boto3.client(
         "s3",
@@ -436,7 +436,6 @@ def set_s3_bucket_policy(aws_access_key_id: str, aws_secret_access_key: str, buc
     
     
 @tool(args_schema=EnableS3VersioningInput, return_direct=True)
-@logging_decorator()
 def enable_s3_versioning(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str, status: str) -> EnableS3VersioningOutput:
     """
     Enable or suspend versioning on an S3 bucket.
@@ -464,7 +463,6 @@ def enable_s3_versioning(aws_access_key_id: str, aws_secret_access_key: str, buc
     return EnableS3VersioningOutput(bucket_name=bucket_name, versioning_status=status)
 
 @tool(args_schema=SetS3BucketEncryptionInput, return_direct=True)
-@logging_decorator()
 def set_s3_bucket_encryption(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str, encryption_type: str, kms_key_id: str | None = None) -> dict:
     """
     Enable server-side encryption on an S3 bucket.
@@ -501,7 +499,6 @@ def set_s3_bucket_encryption(aws_access_key_id: str, aws_secret_access_key: str,
 
 
 @tool(args_schema=ConfigureS3ObjectLockInput, return_direct=True)
-@logging_decorator()
 def configure_s3_object_lock(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -539,7 +536,6 @@ def configure_s3_object_lock(
         return ConfigureS3ObjectLockOutput(message=f"Object Lock not enabled on {bucket_name}.")
     
 @tool(args_schema=ConfigureLifecycleRuleInput, return_direct=True)
-@logging_decorator()
 def configure_lifecycle_rule(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -579,7 +575,6 @@ def configure_lifecycle_rule(
         return {"status": f"Error: {str(e)}"}
     
 @tool(args_schema=ConfigureBucketLoggingInput, return_direct=True)
-@logging_decorator()
 def configure_bucket_logging(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -625,7 +620,6 @@ def configure_bucket_logging(
         )
     
 @tool(args_schema=ConfigureBucketReplicationInput, return_direct=True)
-@logging_decorator()
 def configure_bucket_replication(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -675,7 +669,6 @@ def configure_bucket_replication(
         )
     
 @tool(args_schema=ConfigureBucketEventNotificationInput, return_direct=True)
-@logging_decorator()
 def configure_bucket_event_notification(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -719,7 +712,6 @@ def configure_bucket_event_notification(
         )
     
 @tool(args_schema=CreateBucketInput, return_direct=True)
-@logging_decorator()
 def create_s3_bucket(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -755,7 +747,6 @@ def create_s3_bucket(
         )
 
 @tool(args_schema=DeleteBucketInput, return_direct=True)
-@logging_decorator()
 def delete_s3_bucket(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -782,7 +773,6 @@ def delete_s3_bucket(
         )
     
 @tool(args_schema=CreateIAMUserInput, return_direct=True)
-@logging_decorator()
 def create_iam_user(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -809,12 +799,12 @@ def create_iam_user(
         )
     
 @tool(args_schema=DeleteIAMUserInput, return_direct=True)
-@logging_decorator()
 def delete_iam_user(
     aws_access_key_id: str,
     aws_secret_access_key: str,
     user_name: str
 ) -> DeleteIAMUserOutput:
+    """Delete an IAM user."""
     client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
     try:
         client.delete_user(UserName=user_name)
@@ -824,7 +814,6 @@ def delete_iam_user(
         return DeleteIAMUserOutput(status=f"Error: {str(e)}")
     
 @tool(args_schema=AttachPolicyInput, return_direct=True)
-@logging_decorator()
 def attach_policy_to_user(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -842,7 +831,6 @@ def attach_policy_to_user(
         return AttachPolicyOutput(status=f"Error: {str(e)}", user_name=user_name, policy_arn=policy_arn)
     
 @tool(args_schema=DetachPolicyInput, return_direct=True)
-@logging_decorator()
 def detach_policy_from_user(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -859,7 +847,6 @@ def detach_policy_from_user(
         return DetachPolicyOutput(status=f"Error: {str(e)}")
 
 @tool(args_schema=CreateAccessKeyInput)
-@logging_decorator()
 def create_access_key_for_user(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -905,7 +892,6 @@ def create_access_key_for_user(
             status=error_message
         )
 @tool(args_schema=CreatePolicyInput) # Removed return_direct=True for easier inspection
-@logging_decorator()
 def create_custom_policy(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -922,12 +908,12 @@ def create_custom_policy(
         return CreatePolicyOutput(policy_arn="", status=f"Error: {str(e)}")
 
 @tool(args_schema=RotateAccessKeyInput, return_direct=True)
-@logging_decorator()
 def rotate_access_key(
     aws_access_key_id: str,
     aws_secret_access_key: str,
     user_name: str
 ) -> RotateAccessKeyOutput:
+    """Rotates the access key for a specified IAM user."""
     client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
     try:
         # List existing keys
@@ -954,7 +940,6 @@ def rotate_access_key(
 
 
 @tool(args_schema=AttachInstanceProfileInput) # Removed return_direct for easier inspection
-@logging_decorator()
 def attach_instance_profile_to_ec2(
     aws_access_key_id: str,
     aws_secret_access_key: str,

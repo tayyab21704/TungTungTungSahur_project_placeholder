@@ -49,7 +49,7 @@ class AWSWorkflowGraph:
         
         self.graph = self._build_graph()
     
-    @logging_decorator
+  
     def _build_graph(self):
         workflow = StateGraph(GraphState)
         
@@ -75,7 +75,7 @@ class AWSWorkflowGraph:
         
         return workflow.compile(checkpointer=MemorySaver())
     
-    @logging_decorator
+    @logging_decorator()
     def create_plan(self, state: GraphState) -> Dict[str, Any]:
         """Create execution plan from user prompt using Groq LLM with tool binding"""
         user_message = state.messages[-1].content if state.messages else ""
@@ -122,7 +122,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Created plan: {plan}")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def _extract_tool_calls_from_response(self, response) -> List[Dict[str, Any]]:
         """Extract tool calls from LLM response"""
         tool_calls = []
@@ -143,7 +143,7 @@ class AWSWorkflowGraph:
         
         return tool_calls
     
-    @logging_decorator
+    @logging_decorator()
     def _tool_requires_user_input(self, tool_name: str) -> bool:
         """Check if a tool requires user input for sensitive parameters"""
         tools_requiring_input = {
@@ -156,12 +156,12 @@ class AWSWorkflowGraph:
         }
         return tool_name in tools_requiring_input
     
-    @logging_decorator
+    @logging_decorator()
     def _check_requires_user_input(self, tool_calls: List[Dict[str, Any]]) -> bool:
         """Check if any tool calls require user input"""
         return any(call.get("requires_input", False) for call in tool_calls)
     
-    @logging_decorator
+    @logging_decorator()
     def _fallback_tool_extraction(self, content: str) -> List[Dict[str, Any]]:
         """Fallback method for tool extraction when LLM doesn't make tool calls"""
         tool_calls = []
@@ -219,7 +219,7 @@ class AWSWorkflowGraph:
         
         return tool_calls
     
-    @logging_decorator
+    @logging_decorator()
     def validate_tools(self, state: GraphState) -> Dict[str, Any]:
         """Validate tool calls with user using Groq LLM"""
         validation_prompt = f"""
@@ -245,7 +245,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Validation: {response.content}")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def _format_tool_calls_for_display(self, tool_calls: List[Dict[str, Any]]) -> str:
         """Format tool calls for user display"""
         formatted = []
@@ -256,7 +256,7 @@ class AWSWorkflowGraph:
             formatted.append(f"{i}. {tool_name}{input_note}")
         return "\n".join(formatted)
     
-    @logging_decorator
+    @logging_decorator()
     def execute_tools(self, state: GraphState) -> Dict[str, Any]:
         """Execute the planned tools"""
         results = []
@@ -284,7 +284,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content="Tools executed successfully")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def complete_workflow(self, state: GraphState) -> Dict[str, Any]:
         """Complete the workflow using Groq LLM"""
         completion_prompt = f"""
@@ -309,7 +309,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Workflow completed: {response.content}")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def _format_execution_results(self, results: List[Dict[str, Any]]) -> str:
         """Format execution results for display"""
         if not results:
@@ -324,10 +324,18 @@ class AWSWorkflowGraph:
         
         return "\n".join(formatted)
     
-    @logging_decorator
+    @logging_decorator()
     def should_validate(self, state: GraphState) -> str:
         """Determine if validation is required"""
         return "validate" if state.requires_validation else "execute"
 
 # Global graph instance
-aws_graph = AWSWorkflowGraph()
+# aws_graph = AWSWorkflowGraph()
+aws_graph_instance = None
+
+def get_aws_graph():
+    global aws_graph_instance
+    if aws_graph_instance is None:
+        aws_graph_instance = AWSWorkflowGraph()
+    return aws_graph_instance
+
