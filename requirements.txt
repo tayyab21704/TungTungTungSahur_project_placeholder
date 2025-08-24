@@ -1,0 +1,12 @@
+fastapi
+pydantic[dotenv]
+uvicorn
+python-dotenv
+langgraph
+langchain_community
+duckduckgo-search
+langchain-openai
+langchain-tavily
+langchain-groq
+pytz
+boto3
