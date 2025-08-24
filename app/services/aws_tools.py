@@ -17,17 +17,18 @@ class ListS3BucketsOutput(BaseModel):
 
 # get function
 def get_all_aws_tools():
-    return
+    return [list_s3_buckets]
 
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
-@logging_decorator()
+# @logging_decorator()
 def list_s3_buckets():
+    """List all S3 buckets in the AWS account."""
     s3_client = boto3.client(
         "s3",
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key
     )
-    """List all S3 buckets in the AWS account."""
+    
     response = s3_client.list_buckets()
     return [bucket['Name'] for bucket in response['Buckets']]
