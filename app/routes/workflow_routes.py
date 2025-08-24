@@ -72,13 +72,11 @@ async def create_plan(
         # Store in MongoDB
         workflow_collection.insert_one(plan_data)
         
-        # Cache in Redis (5 minutes)
-        if result["requires_validation"]:
-            redis_client.setex(
-                f"workflow:{session_id}",
-                300,  # 5 minutes
-                json.dumps(plan_data, default=str)
-            )
+        redis_client.setex(
+            f"workflow:{session_id}",
+            300,  # 5 minutes
+            json.dumps(plan_data, default=str)
+        )
         
         return {
             "session_id": session_id,
@@ -101,6 +99,7 @@ async def confirm_plan(
     try:
         # Check Redis cache
         cached_data = redis_client.get(f"workflow:{request.session_id}")
+        
         if not cached_data:
             raise HTTPException(
                 status_code=400, 
@@ -132,6 +131,7 @@ async def confirm_plan(
                     "tool_name": call["name"],
                     "required_fields": _get_tool_required_fields(call["name"])
                 })
+        
         
         return {
             "message": "Plan confirmed. Ready for execution.",

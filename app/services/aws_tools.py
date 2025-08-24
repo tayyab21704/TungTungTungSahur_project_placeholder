@@ -21,8 +21,7 @@ def get_all_aws_tools():
 
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
-# @logging_decorator()
-def list_s3_buckets():
+def list_s3_buckets(aws_access_key_id: str, aws_secret_access_key: str):
     """List all S3 buckets in the AWS account."""
     s3_client = boto3.client(
         "s3",
