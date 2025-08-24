@@ -7,8 +7,12 @@ import json
 import os
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from app.services.aws_tools import get_all_aws_tools
+from app.services.aws_tools1 import get_all_aws_tools
 from app.utils.logging_decorator import logging_decorator
+# from langchain_google_vertexai import ChatVertexAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+import re
 
 load_dotenv()
 
@@ -46,7 +50,17 @@ class AWSWorkflowGraph:
             groq_api_key=os.getenv("GROQ_API_KEY"),
             model_name="llama3-8b-8192"
         )
-        
+
+        # LLM for planning
+        self.planner_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
+
+        # # LLM with tools bound for tool calling
+        self.tool_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", 
+                                               temperature=0).bind_tools(self.tools)
+
+        # # LLM for validation and completion
+        self.completion_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", 
+                                               temperature=0)
         self.graph = self._build_graph()
     
     @logging_decorator
@@ -108,10 +122,11 @@ class AWSWorkflowGraph:
         tool_response = self.tool_llm.invoke([HumanMessage(content=tool_selection_prompt)])
         
         # Extract tool calls from the response
+        # -----
         tool_calls = self._extract_tool_calls_from_response(tool_response)
         
         print("Tool calls extracted:", tool_calls)
-        
+        # ----
         # Check if validation is required (more than 1 tool or requires user input)
         requires_validation = len(tool_calls) > 1 or self._check_requires_user_input(tool_calls)
         
@@ -122,26 +137,115 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Created plan: {plan}")]
         }
     
-    @logging_decorator
+    # @logging_decorator
+    # def _extract_tool_calls_from_response(self, response) -> List[Dict[str, Any]]:
+    #     """Extract tool calls from LLM response"""
+    #     tool_calls = []
+        
+    #     # Check if the response has tool calls
+    #     if hasattr(response, 'tool_calls') and response.tool_calls:
+    #         for tool_call in response.tool_calls:
+    #             tool_call_dict = {
+    #                 "name": tool_call["name"],
+    #                 "arguments": tool_call["args"],
+    #                 "requires_input": self._tool_requires_user_input(tool_call["name"])
+    #             }
+    #             tool_calls.append(tool_call_dict)
+        
+    #     # If no tool calls were made, try to infer from the response content
+    #     elif not tool_calls:
+    #         tool_calls = self._fallback_tool_extraction(response.content)
+        
+    #     return tool_calls
+
+    # def _extract_tool_calls_from_response(self, response) -> List[str]:
+    #     """
+    #     Extract tool names required for the AI-generated text plan.
+    #     Handles text response from LLM and returns a clean list of strings.
+    #     """
+    #     # Call LLM
+    #     print("1----------------------------------")
+    #     tool_name_prompt = ChatPromptTemplate.from_messages([
+    #         ("system",
+    #          "You are a tool selector. Your job is to read an AI-generated plan "
+    #          "and choose the correct tools from the available list.\n\n"
+    #          "Return only a list of tool names. Text only, no extra explanation.\n"
+    #          "Tools must be from the available list."),
+    #         ("user", "AI Plan:\n{plan_text}\n\nAvailable tools:\n{tools_list}")
+    #     ])
+
+    #     tool_objects = get_all_aws_tools()
+    #     tools_list = [t.name for t in tool_objects]
+
+    #     print("2----------------------------------")
+    #     response_llm = tool_name_prompt | self.planner_llm
+    #     print("3----------------------------------")
+    #     raw_message = response_llm.invoke({
+    #         "plan_text": response.content,
+    #         "tools_list": tools_list
+    #     })
+    #     print("4----------------------------------")
+    #     # Access the text content
+    #     raw_text = raw_message.content if hasattr(raw_message, "content") else str(raw_message)
+    #     print("5----------------------------------")
+    #     # -----------------------------
+    #     # Extract tool names from text
+    #     # -----------------------------
+    #     tool_names = []
+    #     try:
+    #         # Try parsing JSON if LLM returned JSON
+    #         tool_names = json.loads(raw_text)
+    #         print("6----------------------------------")
+    #         if isinstance(tool_names, str):
+    #             tool_names = [tool_names]
+    #     except Exception:
+    #         for tool in tools_list:
+    #             tool_name = getattr(tool, "name", str(tool))
+    #             if re.search(rf"\b{re.escape(tool_name)}\b", raw_text, re.IGNORECASE):
+    #                 tool_names.append(tool_name)
+
+    #     # Deduplicate
+    #     return list(dict.fromkeys(tool_names))
+
     def _extract_tool_calls_from_response(self, response) -> List[Dict[str, Any]]:
-        """Extract tool calls from LLM response"""
-        tool_calls = []
-        
-        # Check if the response has tool calls
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            for tool_call in response.tool_calls:
-                tool_call_dict = {
-                    "name": tool_call["name"],
-                    "arguments": tool_call["args"],
-                    "requires_input": self._tool_requires_user_input(tool_call["name"])
-                }
-                tool_calls.append(tool_call_dict)
-        
-        # If no tool calls were made, try to infer from the response content
-        elif not tool_calls:
-            tool_calls = self._fallback_tool_extraction(response.content)
-        
+        """
+        Extract tool calls from LLM response.
+        Always returns list of dicts with keys: name, arguments, requires_input.
+        """
+        tool_objects = get_all_aws_tools()
+        available_tool_names = [t.name for t in tool_objects]
+    
+        tool_calls: List[Dict[str, Any]] = []
+    
+        # Get raw text from LLM
+        raw_text = response.content if hasattr(response, "content") else str(response)
+    
+        try:
+            parsed = json.loads(raw_text)
+            # If model returned a single string
+            if isinstance(parsed, str):
+                parsed = [parsed]
+            # If model returned a list of strings
+            if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+                for name in parsed:
+                    if name in available_tool_names:
+                        tool_calls.append({
+                            "name": name,
+                            "arguments": {},
+                            "requires_input": self._tool_requires_user_input(name)
+                        })
+        except Exception:
+            # Fallback: regex match against available tool names
+            for name in available_tool_names:
+                if re.search(rf"\b{re.escape(name)}\b", raw_text, re.IGNORECASE):
+                    tool_calls.append({
+                        "name": name,
+                        "arguments": {},
+                        "requires_input": self._tool_requires_user_input(name)
+                    })
+    
         return tool_calls
+
     
     @logging_decorator
     def _tool_requires_user_input(self, tool_name: str) -> bool:

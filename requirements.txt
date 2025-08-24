@@ -17,3 +17,4 @@ pydantic[email]
 python-multipart
 redis
 bcrypt
+langchain-google-genai
