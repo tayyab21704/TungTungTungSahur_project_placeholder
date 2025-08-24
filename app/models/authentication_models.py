@@ -199,7 +199,7 @@ class UserProfile(BaseModel):
     # last_name: str
     email: str
     phone_number: str
-    date_of_birth: str
+    # date_of_birth: str
     profile_picture: Optional[str] = None
     bio: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None

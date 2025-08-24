@@ -38,29 +38,25 @@ async def create_plan(
 ):
     """Create execution plan from user prompt"""
     try:
-        print("1--------------------------")
         session_id = str(uuid.uuid4())
         
-        print("2--------------------------")
         # Initialize state
         initial_state = GraphState(
             messages=[HumanMessage(content=request.prompt)],
             session_id=session_id
         )
         
-        print("3--------------------------")
         # Run graph until plan creation
         config = {"configurable": {"thread_id": session_id}}
-        print("3.5--------------------------")
         # print(initial_state.model_dump())
         # result = aws_graph.graph.invoke(initial_state.model_dump(), config)
         result = aws_graph.graph.invoke(initial_state, config)
-        print("4--------------------------")
+        
         if result is None:
             logger.error("Result in create_plan is None")
         else:
             logger.error("Result in create_plan is None")
-        print("5--------------------------")
+        
         # Prepare response
         plan_data = {
             "session_id": session_id,
@@ -72,11 +68,10 @@ async def create_plan(
             "created_at": datetime.utcnow(),
             "status": "pending_confirmation"
         }
-        print("6--------------------------")
         
         # Store in MongoDB
         workflow_collection.insert_one(plan_data)
-        print("7--------------------------")
+        
         # Cache in Redis (5 minutes)
         if result["requires_validation"]:
             redis_client.setex(
@@ -84,7 +79,7 @@ async def create_plan(
                 300,  # 5 minutes
                 json.dumps(plan_data, default=str)
             )
-        print("8--------------------------")
+        
         return {
             "session_id": session_id,
             "plan": result["plan"],
