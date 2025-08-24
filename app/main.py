@@ -1,6 +1,6 @@
 from fastapi import FastAPI
+from app.routes import auth, workflow_routes
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth
 
 app = FastAPI(
     title="AWS Agentic AI",
@@ -22,3 +22,4 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(workflow_routes.router)

@@ -373,7 +373,6 @@ def get_all_aws_tools():
         attach_instance_profile_to_ec2
     ]
 
-
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
 @logging_decorator()
@@ -384,9 +383,9 @@ def list_s3_buckets(aws_access_key_id: str, aws_secret_access_key: str):
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key
     )
+
     response = s3_client.list_buckets()
     return [bucket['Name'] for bucket in response['Buckets']]
-
 
 
 @tool(args_schema=GetBucketRegionInput, return_direct=True)
