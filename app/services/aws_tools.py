@@ -299,17 +299,16 @@ def get_all_aws_tools():
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
 @logging_decorator()
-def list_s3_buckets():
+def list_s3_buckets(aws_access_key_id: str, aws_secret_access_key: str):
+    """List all S3 buckets in the AWS account."""
     s3_client = boto3.client(
         "s3",
-        aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-,
-        aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key
     )
-    """List all S3 buckets in the AWS account."""
     response = s3_client.list_buckets()
     return [bucket['Name'] for bucket in response['Buckets']]
+
 
 
 @tool(args_schema=GetBucketRegionInput, return_direct=True)
