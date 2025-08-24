@@ -6,6 +6,7 @@ import boto3
 from langchain.tools import tool
 import os
 from dotenv import load_dotenv
+from botocore.exceptions import ClientError
 
 load_dotenv()
 # pydantic classes
@@ -165,6 +166,110 @@ class DeleteBucketOutput(BaseModel):
     status: str = Field(..., description="Result message.")
     bucket_name: str = Field(..., description="Name of the deleted bucket.")
 
+# create IAM User
+class CreateIAMUserInput(BaseModel):
+    """Input for creating an IAM user."""
+    aws_access_key_id: str = Field(..., description="AWS access key ID.")
+    aws_secret_access_key: str = Field(..., description="AWS secret access key.")
+    user_name: str = Field(..., description="Name of the IAM user to create.")
+
+
+class CreateIAMUserOutput(BaseModel):
+    """Output for creating an IAM user."""
+    status: str = Field(..., description="Result message.")
+    user_arn: str = Field(..., description="ARN of the created IAM user.")
+
+# Delete User
+class DeleteIAMUserInput(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    user_name: str
+
+
+class DeleteIAMUserOutput(BaseModel):
+    status: str
+
+
+#IAM Attach Policy
+class AttachPolicyInput(BaseModel):
+    """Input for attaching a policy to an IAM user."""
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    user_name: str
+    policy_arn: str = Field(..., description="ARN of the policy to attach (e.g., arn:aws:iam::aws:policy/AmazonS3FullAccess).")
+
+class AttachPolicyOutput(BaseModel):
+    """Output after attaching a policy."""
+    status: str
+    user_name: str
+    policy_arn: str
+
+# Detach Policy
+class DetachPolicyInput(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    user_name: str
+    policy_arn: str
+
+
+class DetachPolicyOutput(BaseModel):
+    status: str
+
+
+
+# Create Access Key
+class CreateAccessKeyInput(BaseModel):
+    """Input for creating a new access key for an IAM user."""
+    aws_access_key_id: str = Field(..., description="AWS access key ID for authentication.")
+    aws_secret_access_key: str = Field(..., description="AWS secret access key for authentication.")
+    user_name: str = Field(..., description="The name of the IAM user to create keys for.")
+
+
+class CreateAccessKeyOutput(BaseModel):
+    """Output containing the newly created access key pair."""
+    new_access_key_id: str = Field(..., description="The newly created access key ID.")
+    new_secret_access_key: str = Field(..., description="The new secret access key. This is the only time it will be shown.")
+    status: str = Field(..., description="The result of the operation.")
+
+# Create Custom Policy
+class CreatePolicyInput(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    policy_name: str
+    policy_document: str = Field(..., description="JSON string of the policy document.")
+
+
+class CreatePolicyOutput(BaseModel):
+    policy_arn: str
+    status: str
+
+
+# Rotate Access keys
+class RotateAccessKeyInput(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    user_name: str
+
+
+class RotateAccessKeyOutput(BaseModel):
+    old_key_status: str
+    new_access_key_id: str
+    new_secret_access_key: str
+    status: str
+
+# Attach role to EC2 Instance
+class AttachInstanceProfileInput(BaseModel):
+    """Input for attaching an IAM instance profile to an EC2 instance."""
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    region_name: str
+    instance_id: str
+    instance_profile_name: str = Field(..., description="The name of the IAM instance profile to attach.")
+
+
+class AttachInstanceProfileOutput(BaseModel):
+    """Output after attaching the instance profile."""
+    status: str
 # get function
 def get_all_aws_tools():
     return [
@@ -178,9 +283,19 @@ def get_all_aws_tools():
         configure_bucket_replication,
         configure_bucket_event_notification,
         create_s3_bucket,
-        delete_s3_bucket
+        delete_s3_bucket,
+        create_iam_user,
+        attach_policy_to_user,
+        create_custom_policy,
+        detach_policy_from_user,
+        create_access_key_for_user,
+        rotate_access_key,
+        delete_iam_user,
+        attach_instance_profile_to_ec2
     ]
 
+    
+  
 # Tools
 @tool(args_schema=ListS3BucketsInput, return_direct=True)
 @logging_decorator()
@@ -210,43 +325,38 @@ def get_bucket_region(aws_access_key_id: str, aws_secret_access_key: str, bucket
     region = response.get('LocationConstraint', 'us-east-1')  # Default to us-east-1 if None
     return GetBucketRegionOutput(bucket_name=bucket_name, region=region)
 
-# @tool(args_schema=SetBucketPolicyInput, return_direct=True)
-# @logging_decorator()
-# def set_s3_bucket_policy(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str, policy_type: str, custom_policy: Optional[dict] = None):
-#     """
-#     Set the bucket policy or ACL for an S3 bucket.
-#     Supports: 'private', 'public-read', and 'custom' policies.
-#     """
-#     s3_client = boto3.client(
-#         "s3",
-#         aws_access_key_id=aws_access_key_id,
-#         aws_secret_access_key=aws_secret_access_key
-#     )
+@tool(args_schema=SetBucketPolicyInput, return_direct=True)
+@logging_decorator()
+def set_s3_bucket_policy(aws_access_key_id: str, aws_secret_access_key: str, bucket_name: str, policy_type: str, custom_policy: Optional[dict] = None):
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key
+    )
 
-    
+    try:
+        if policy_type == "private":
+            s3_client.put_bucket_acl(Bucket=bucket_name, ACL="private")
+            return {"status": f"Bucket '{bucket_name}' set to private."}
 
-#     try:
-#         if policy_type == "private":
-#             s3_client.put_bucket_acl(Bucket=bucket_name, ACL="private")
-#             return {"status": f"Bucket '{bucket_name}' set to private."}
+        elif policy_type == "public-read":
+            s3_client.put_bucket_acl(Bucket=bucket_name, ACL="public-read")
+            return {"status": f"Bucket '{bucket_name}' set to public-read."}
 
-#         elif policy_type == "public-read":
-#             s3_client.put_bucket_acl(Bucket=bucket_name, ACL="public-read")
-#             return {"status": f"Bucket '{bucket_name}' set to public-read."}
+        elif policy_type == "custom":
+            if not custom_policy:
+                return {"status": "Custom policy not provided for policy_type='custom'."}
 
-#         elif policy_type == "custom":
-#             if not custom_policy:
-#                 return {"status": "Custom policy not provided for policy_type='custom'."}
+            s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(custom_policy))
+            return {"status": f"Custom policy applied to bucket '{bucket_name}'."}
 
-#             s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(custom_policy))
-#             return {"status": f"Custom policy applied to bucket '{bucket_name}'."}
+        else:
+            return {"status": "Invalid policy_type. Choose from: private, public-read, custom."}
 
-#         else:
-#             return {"status": "Invalid policy_type. Choose from: private, public-read, custom."}
+    except Exception as e:
+        logger.error(f"Error setting bucket policy: {str(e)}")
+        return {"status": f"Failed to update policy: {str(e)}"}
 
-#     except Exception as e:
-#         logger.error(f"Error setting bucket policy: {str(e)}")
-#         return {"status": f"Failed to update policy: {str(e)}"}
     
     
 @tool(args_schema=EnableS3VersioningInput, return_direct=True)
@@ -594,3 +704,202 @@ def delete_s3_bucket(
             status=f"Error: {str(e)}",
             bucket_name=bucket_name
         )
+    
+@tool(args_schema=CreateIAMUserInput, return_direct=True)
+@logging_decorator()
+def create_iam_user(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str
+) -> CreateIAMUserOutput:
+    """Create an IAM user."""
+    client = boto3.client(
+        'iam',
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key
+    )
+
+    try:
+        response = client.create_user(UserName=user_name)
+        return CreateIAMUserOutput(
+            status="User created successfully.",
+            user_arn=response['User']['Arn']
+        )
+    except Exception as e:
+        logger.error(f"Error creating IAM user {user_name}: {e}")
+        return CreateIAMUserOutput(
+            status=f"Error: {str(e)}",
+            user_arn=""
+        )
+    
+@tool(args_schema=DeleteIAMUserInput, return_direct=True)
+@logging_decorator()
+def delete_iam_user(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str
+) -> DeleteIAMUserOutput:
+    client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+    try:
+        client.delete_user(UserName=user_name)
+        return DeleteIAMUserOutput(status="User deleted successfully.")
+    except Exception as e:
+        logger.error(f"Error deleting IAM user: {e}")
+        return DeleteIAMUserOutput(status=f"Error: {str(e)}")
+    
+@tool(args_schema=AttachPolicyInput, return_direct=True)
+@logging_decorator()
+def attach_policy_to_user(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str,
+    policy_arn: str
+) -> AttachPolicyOutput:
+    """Attach an IAM policy to a user."""
+    client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+
+    try:
+        client.attach_user_policy(UserName=user_name, PolicyArn=policy_arn)
+        return AttachPolicyOutput(status="Policy attached successfully.", user_name=user_name, policy_arn=policy_arn)
+    except Exception as e:
+        logger.error(f"Error attaching policy: {e}")
+        return AttachPolicyOutput(status=f"Error: {str(e)}", user_name=user_name, policy_arn=policy_arn)
+    
+@tool(args_schema=DetachPolicyInput, return_direct=True)
+@logging_decorator()
+def detach_policy_from_user(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str,
+    policy_arn: str
+) -> DetachPolicyOutput:
+    """Detach an IAM policy from a user."""
+    client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+    try:
+        client.detach_user_policy(UserName=user_name, PolicyArn=policy_arn)
+        return DetachPolicyOutput(status="Policy detached successfully.")
+    except Exception as e:
+        logger.error(f"Error detaching policy: {e}")
+        return DetachPolicyOutput(status=f"Error: {str(e)}")
+
+@tool(args_schema=CreateAccessKeyInput)
+@logging_decorator()
+def create_access_key_for_user(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str
+) -> CreateAccessKeyOutput:
+    """Creates a new access key and secret key for a specified IAM user."""
+    try:
+        # 1. Initialize the IAM client using the provided admin credentials.
+        iam_client = boto3.client(
+            'iam',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key
+        )
+
+        # 2. Call the create_access_key API for the target user.
+        response = iam_client.create_access_key(UserName=user_name)
+        access_key_data = response['AccessKey']
+
+        # 3. Return the new credentials and a success message.
+        return CreateAccessKeyOutput(
+            new_access_key_id=access_key_data['AccessKeyId'],
+            new_secret_access_key=access_key_data['SecretAccessKey'],
+            status="Success. IMPORTANT: Securely save the new secret key now, as it cannot be retrieved later."
+        )
+
+    except ClientError as e:
+        # Handle known AWS errors, like user not found or key limit exceeded.
+        error_message = f"Error: {e.response['Error']['Message']}"
+        # logger.error(error_message)
+        return CreateAccessKeyOutput(
+            new_access_key_id="",
+            new_secret_access_key="",
+            status=error_message
+        )
+        
+    except Exception as e:
+        # Handle other unexpected errors.
+        error_message = f"An unexpected error occurred: {str(e)}"
+        # logger.error(error_message)
+        return CreateAccessKeyOutput(
+            new_access_key_id="",
+            new_secret_access_key="",
+            status=error_message
+        )
+@tool(args_schema=CreatePolicyInput) # Removed return_direct=True for easier inspection
+@logging_decorator()
+def create_custom_policy(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    policy_name: str,
+    policy_document: str
+) -> CreatePolicyOutput:
+    """Creates a new custom IAM policy."""
+    client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+    try:
+        response = client.create_policy(PolicyName=policy_name, PolicyDocument=policy_document)
+        return CreatePolicyOutput(policy_arn=response['Policy']['Arn'], status="Policy created successfully.")
+    except Exception as e:
+        logger.error(f"Error creating custom policy: {e}")
+        return CreatePolicyOutput(policy_arn="", status=f"Error: {str(e)}")
+
+@tool(args_schema=RotateAccessKeyInput, return_direct=True)
+@logging_decorator()
+def rotate_access_key(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    user_name: str
+) -> RotateAccessKeyOutput:
+    client = boto3.client('iam', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+    try:
+        # List existing keys
+        keys = client.list_access_keys(UserName=user_name)['AccessKeyMetadata']
+        old_key_id = keys[0]['AccessKeyId'] if keys else None
+
+        # Create new key
+        new_key = client.create_access_key(UserName=user_name)['AccessKey']
+
+        # Deactivate old key if exists
+        if old_key_id:
+            client.update_access_key(UserName=user_name, AccessKeyId=old_key_id, Status='Inactive')
+
+        return RotateAccessKeyOutput(
+            old_key_status="Deactivated" if old_key_id else "No old key",
+            new_access_key_id=new_key['AccessKeyId'],
+            new_secret_access_key=new_key['SecretAccessKey'],
+            status="Rotation successful"
+        )
+    except Exception as e:
+        logger.error(f"Error rotating access key: {e}")
+        return RotateAccessKeyOutput(old_key_status="", new_access_key_id="", new_secret_access_key="", status=f"Error: {str(e)}")
+    
+
+
+@tool(args_schema=AttachInstanceProfileInput) # Removed return_direct for easier inspection
+@logging_decorator()
+def attach_instance_profile_to_ec2(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    region_name: str,
+    instance_id: str,
+    instance_profile_name: str
+) -> AttachInstanceProfileOutput:
+    """Attaches an IAM instance profile to a running EC2 instance."""
+    client = boto3.client(
+        'ec2',
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        region_name=region_name
+    )
+    try:
+        # The API requires the Instance Profile's Name, not the Role's Name.
+        client.associate_iam_instance_profile(
+            IamInstanceProfile={'Name': instance_profile_name},
+            InstanceId=instance_id
+        )
+        return AttachInstanceProfileOutput(status="Instance profile attached successfully.")
+    except Exception as e:
+        logger.error(f"Error attaching instance profile to EC2: {e}")
+        return AttachInstanceProfileOutput(status=f"Error: {str(e)}")
