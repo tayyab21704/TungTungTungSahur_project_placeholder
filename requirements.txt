@@ -9,4 +9,13 @@ langchain-openai
 langchain-tavily
 langchain-groq
 pytz
+<<<<<<< Updated upstream
 boto3
+=======
+boto3
+pymongo
+python-jose
+passlib
+pydantic[email]
+python-multipart
+>>>>>>> Stashed changes
