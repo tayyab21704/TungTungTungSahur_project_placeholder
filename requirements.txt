@@ -16,3 +16,4 @@ passlib
 pydantic[email]
 python-multipart
 redis
+bcrypt
