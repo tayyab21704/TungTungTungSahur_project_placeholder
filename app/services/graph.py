@@ -63,7 +63,7 @@ class AWSWorkflowGraph:
                                                temperature=0)
         self.graph = self._build_graph()
     
-    @logging_decorator
+  
     def _build_graph(self):
         workflow = StateGraph(GraphState)
         
@@ -89,7 +89,7 @@ class AWSWorkflowGraph:
         
         return workflow.compile(checkpointer=MemorySaver())
     
-    @logging_decorator
+    @logging_decorator()
     def create_plan(self, state: GraphState) -> Dict[str, Any]:
         """Create execution plan from user prompt using Groq LLM with tool binding"""
         user_message = state.messages[-1].content if state.messages else ""
@@ -137,76 +137,8 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Created plan: {plan}")]
         }
     
-    # @logging_decorator
-    # def _extract_tool_calls_from_response(self, response) -> List[Dict[str, Any]]:
-    #     """Extract tool calls from LLM response"""
-    #     tool_calls = []
-        
-    #     # Check if the response has tool calls
-    #     if hasattr(response, 'tool_calls') and response.tool_calls:
-    #         for tool_call in response.tool_calls:
-    #             tool_call_dict = {
-    #                 "name": tool_call["name"],
-    #                 "arguments": tool_call["args"],
-    #                 "requires_input": self._tool_requires_user_input(tool_call["name"])
-    #             }
-    #             tool_calls.append(tool_call_dict)
-        
-    #     # If no tool calls were made, try to infer from the response content
-    #     elif not tool_calls:
-    #         tool_calls = self._fallback_tool_extraction(response.content)
-        
-    #     return tool_calls
 
-    # def _extract_tool_calls_from_response(self, response) -> List[str]:
-    #     """
-    #     Extract tool names required for the AI-generated text plan.
-    #     Handles text response from LLM and returns a clean list of strings.
-    #     """
-    #     # Call LLM
-    #     print("1----------------------------------")
-    #     tool_name_prompt = ChatPromptTemplate.from_messages([
-    #         ("system",
-    #          "You are a tool selector. Your job is to read an AI-generated plan "
-    #          "and choose the correct tools from the available list.\n\n"
-    #          "Return only a list of tool names. Text only, no extra explanation.\n"
-    #          "Tools must be from the available list."),
-    #         ("user", "AI Plan:\n{plan_text}\n\nAvailable tools:\n{tools_list}")
-    #     ])
-
-    #     tool_objects = get_all_aws_tools()
-    #     tools_list = [t.name for t in tool_objects]
-
-    #     print("2----------------------------------")
-    #     response_llm = tool_name_prompt | self.planner_llm
-    #     print("3----------------------------------")
-    #     raw_message = response_llm.invoke({
-    #         "plan_text": response.content,
-    #         "tools_list": tools_list
-    #     })
-    #     print("4----------------------------------")
-    #     # Access the text content
-    #     raw_text = raw_message.content if hasattr(raw_message, "content") else str(raw_message)
-    #     print("5----------------------------------")
-    #     # -----------------------------
-    #     # Extract tool names from text
-    #     # -----------------------------
-    #     tool_names = []
-    #     try:
-    #         # Try parsing JSON if LLM returned JSON
-    #         tool_names = json.loads(raw_text)
-    #         print("6----------------------------------")
-    #         if isinstance(tool_names, str):
-    #             tool_names = [tool_names]
-    #     except Exception:
-    #         for tool in tools_list:
-    #             tool_name = getattr(tool, "name", str(tool))
-    #             if re.search(rf"\b{re.escape(tool_name)}\b", raw_text, re.IGNORECASE):
-    #                 tool_names.append(tool_name)
-
-    #     # Deduplicate
-    #     return list(dict.fromkeys(tool_names))
-
+    @logging_decorator()
     def _extract_tool_calls_from_response(self, response) -> List[Dict[str, Any]]:
         """
         Extract tool calls from LLM response.
@@ -247,7 +179,7 @@ class AWSWorkflowGraph:
         return tool_calls
 
     
-    @logging_decorator
+    @logging_decorator()
     def _tool_requires_user_input(self, tool_name: str) -> bool:
         """Check if a tool requires user input for sensitive parameters"""
         tools_requiring_input = {
@@ -260,12 +192,12 @@ class AWSWorkflowGraph:
         }
         return tool_name in tools_requiring_input
     
-    @logging_decorator
+    @logging_decorator()
     def _check_requires_user_input(self, tool_calls: List[Dict[str, Any]]) -> bool:
         """Check if any tool calls require user input"""
         return any(call.get("requires_input", False) for call in tool_calls)
     
-    @logging_decorator
+    @logging_decorator()
     def _fallback_tool_extraction(self, content: str) -> List[Dict[str, Any]]:
         """Fallback method for tool extraction when LLM doesn't make tool calls"""
         tool_calls = []
@@ -323,7 +255,7 @@ class AWSWorkflowGraph:
         
         return tool_calls
     
-    @logging_decorator
+    @logging_decorator()
     def validate_tools(self, state: GraphState) -> Dict[str, Any]:
         """Validate tool calls with user using Groq LLM"""
         validation_prompt = f"""
@@ -349,7 +281,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Validation: {response.content}")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def _format_tool_calls_for_display(self, tool_calls: List[Dict[str, Any]]) -> str:
         """Format tool calls for user display"""
         formatted = []
@@ -360,7 +292,7 @@ class AWSWorkflowGraph:
             formatted.append(f"{i}. {tool_name}{input_note}")
         return "\n".join(formatted)
     
-    @logging_decorator
+    @logging_decorator()
     def execute_tools(self, state: GraphState) -> Dict[str, Any]:
         """Execute the planned tools"""
         results = []
@@ -388,7 +320,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content="Tools executed successfully")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def complete_workflow(self, state: GraphState) -> Dict[str, Any]:
         """Complete the workflow using Groq LLM"""
         completion_prompt = f"""
@@ -413,7 +345,7 @@ class AWSWorkflowGraph:
             "messages": state.messages + [AIMessage(content=f"Workflow completed: {response.content}")]
         }
     
-    @logging_decorator
+    @logging_decorator()
     def _format_execution_results(self, results: List[Dict[str, Any]]) -> str:
         """Format execution results for display"""
         if not results:
@@ -428,10 +360,18 @@ class AWSWorkflowGraph:
         
         return "\n".join(formatted)
     
-    @logging_decorator
+    @logging_decorator()
     def should_validate(self, state: GraphState) -> str:
         """Determine if validation is required"""
         return "validate" if state.requires_validation else "execute"
 
 # Global graph instance
-aws_graph = AWSWorkflowGraph()
+# aws_graph = AWSWorkflowGraph()
+aws_graph_instance = None
+
+def get_aws_graph():
+    global aws_graph_instance
+    if aws_graph_instance is None:
+        aws_graph_instance = AWSWorkflowGraph()
+    return aws_graph_instance
+
