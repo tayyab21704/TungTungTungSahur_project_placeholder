@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routes import auth, workflow_routes
+from app.routes import auth, workflow_routes, aws_chat_routes
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -23,3 +23,4 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router)
 app.include_router(workflow_routes.router)
+app.include_router(aws_chat_routes.router)

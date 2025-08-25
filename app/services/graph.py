@@ -32,25 +32,14 @@ class AWSWorkflowGraph:
         self.tools = get_all_aws_tools()
         
         # LLM for plan creation and tool selection
-        self.planner_llm = ChatGroq(
-            temperature=0,
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            model_name="llama3-8b-8192"
-        )
+        self.planner_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
         
         # LLM with tools bound for tool calling
-        self.tool_llm = ChatGroq(
-            temperature=0,
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            model_name="llama3-8b-8192"
-        ).bind_tools(self.tools)
+        self.tool_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest",
+                                            temperature=0).bind_tools(self.tools)
         
         # LLM for validation and completion
-        self.completion_llm = ChatGroq(
-            temperature=0,
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            model_name="llama3-8b-8192"
-        )
+        self.completion_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
 
         # LLM for planning
         self.planner_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
@@ -68,11 +57,11 @@ class AWSWorkflowGraph:
     def _build_graph(self):
         workflow = StateGraph(GraphState)
         
-        # Add nodes
-        workflow.add_node("plan_creation", self.create_plan)
-        workflow.add_node("tool_validation", self.validate_tools)
-        workflow.add_node("tool_execution", self.execute_tools)
-        workflow.add_node("completion", self.complete_workflow)
+        # Add nodes - Remove decorators from the method references
+        workflow.add_node("plan_creation", self._create_plan_node)
+        workflow.add_node("tool_validation", self._validate_tools_node)
+        workflow.add_node("tool_execution", self._execute_tools_node)
+        workflow.add_node("completion", self._complete_workflow_node)
         
         # Add edges
         workflow.set_entry_point("plan_creation")
@@ -89,6 +78,19 @@ class AWSWorkflowGraph:
         workflow.add_edge("completion", END)
         
         return workflow.compile(checkpointer=MemorySaver())
+    
+    # Node wrapper functions without decorators
+    def _create_plan_node(self, state: GraphState) -> Dict[str, Any]:
+        return self.create_plan(state)
+    
+    def _validate_tools_node(self, state: GraphState) -> Dict[str, Any]:
+        return self.validate_tools(state)
+    
+    def _execute_tools_node(self, state: GraphState) -> Dict[str, Any]:
+        return self.execute_tools(state)
+    
+    def _complete_workflow_node(self, state: GraphState) -> Dict[str, Any]:
+        return self.complete_workflow(state)
     
     @logging_decorator()
     def create_plan(self, state: GraphState) -> Dict[str, Any]:
@@ -371,7 +373,6 @@ class AWSWorkflowGraph:
         return "validate" if state.requires_validation else "execute"
 
 # Global graph instance
-# aws_graph = AWSWorkflowGraph()
 aws_graph_instance = None
 
 def get_aws_graph():
@@ -379,4 +380,3 @@ def get_aws_graph():
     if aws_graph_instance is None:
         aws_graph_instance = AWSWorkflowGraph()
     return aws_graph_instance
-

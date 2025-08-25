@@ -1,245 +1,255 @@
-import uuid
-import json
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
-
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from typing import Dict, Any, List
+from pydantic import BaseModel
+import logging
 from langchain_core.messages import HumanMessage
+import uuid
 
+from app.services.graph import get_aws_graph
 from app.authentication.auth import get_current_user
-from app.database.mongodb import get_collection
-from app.database.redis import get_redis_client
-from app.services.graph import get_aws_graph, GraphState
-from app.utils.logging_decorator import logging_decorator, logger
 
-router = APIRouter(prefix="/workflow", tags=["workflow"])
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# Collections
-workflow_collection = get_collection("workflows")
-# NEW: Collection to store chat session credentials
-chat_collection = get_collection("chat_sessions")
-redis_client = get_redis_client()
-
-# Request/Response models
-class InitialPromptRequest(BaseModel):
+class PlanRequest(BaseModel):
     prompt: str
-    # MODIFIED: chat_id is now required to fetch credentials
-    chat_id: str = Field(..., description="The active chat session ID to associate credentials.")
+    # session_id: str
 
-class ConfirmPlanRequest(BaseModel):
+class ValidationRequest(BaseModel):
     session_id: str
-    confirmed: bool
+    approved: bool
+    user_inputs: Dict[str, Any] = {}
 
-class ExecuteWorkflowRequest(BaseModel):
+class ExecutionRequest(BaseModel):
     session_id: str
-    inputs: Dict[str, Any] = {}
+    user_inputs: Dict[str, Any] = {}
 
-# Route 1: Initial prompt and plan creation
 @router.post("/create-plan")
-@logging_decorator
 async def create_plan(
-    request: InitialPromptRequest,
-    current_user: dict = Depends(get_current_user)
+    request: PlanRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Create execution plan from user prompt using credentials from chat_id"""
+    """Create an execution plan from user prompt"""
     try:
-        aws_graph = get_aws_graph()
-        session_id = str(uuid.uuid4())
-
-        # NEW: Fetch credentials associated with the chat_id
-        chat_session = chat_collection.find_one({"chat_id": request.chat_id})
-        if not chat_session or "credentials" not in chat_session:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Credentials for chat_id '{request.chat_id}' not found. Please start a session first."
-            )
-        credentials = chat_session["credentials"]
-
-        # Initialize state with prompt and fetched credentials
-        initial_state = GraphState(
-            messages=[HumanMessage(content=request.prompt)],
-            session_id=session_id,
-            credentials=credentials
-        )
-
-        # Run graph until plan creation
-        config = {"configurable": {"thread_id": session_id}}
-        result = aws_graph.graph.invoke(initial_state, config)
+        print("1-----------------------------------")
+        logger.info(f"Creating plan for user {current_user.get('user_id')} with prompt: {request.prompt}")
         
-        # MODIFIED: Corrected logging
-        if result:
-            logger.info(f"Plan created successfully for session {session_id}.")
-        else:
-            logger.error(f"Graph invocation returned None for session {session_id}.")
-            raise HTTPException(status_code=500, detail="Failed to generate a plan from the prompt.")
-
-        # Prepare response
-        plan_data = {
-            "chat_id": request.chat_id,
+        # Get the graph instance
+        aws_graph = get_aws_graph()
+        print("2-----------------------------------")
+        session_id = str(uuid.uuid4())
+        
+        # Create initial state
+        initial_state = {
+            "messages": [HumanMessage(content=request.prompt)],
             "session_id": session_id,
-            "user_email": current_user.email,
-            "prompt": request.prompt,
-            "plan": result["plan"],
-            "tool_calls": result["tool_calls"],
-            "requires_validation": result["requires_validation"],
-            "credentials": credentials,  # Store credentials with the workflow data
-            "created_at": datetime.utcnow(),
-            "status": "pending_confirmation"
+            "plan": None,
+            "tool_calls": [],
+            "current_tool_index": 0,
+            "requires_validation": False,
+            "user_inputs": {},
+            "execution_results": []
         }
-
-        # Store in MongoDB and cache in Redis
-        workflow_collection.insert_one(plan_data)
-        redis_client.setex(
-            f"workflow:{session_id}",
-            300,  # 5 minutes
-            json.dumps(plan_data, default=str)
+        
+        # Run only the plan creation node
+        result = await aws_graph.graph.invoke(
+            initial_state,
+            config={"configurable": {"thread_id": request.session_id}}
         )
-
+        print("3-----------------------------------")
+        
         return {
-            "session_id": session_id,
-            "plan": result["plan"],
-            "tool_calls": result["tool_calls"],
-            "requires_validation": result["requires_validation"],
-            "message": "Plan created. Please review and confirm to proceed."
+            "success": True,
+            "plan": result.get("plan"),
+            "tool_calls": result.get("tool_calls", []),
+            "requires_validation": result.get("requires_validation", False),
+            "session_id": request.session_id
         }
-
-    except HTTPException as http_exc:
-        raise http_exc
+        
     except Exception as e:
-        logger.error(f"Plan creation failed: {e}", exc_info=True)
+        logger.error(f"Plan creation failed: {str(e)}")
+        logger.error(f"Traceback: ", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Plan creation failed: {str(e)}")
 
-# Route 2: Confirm plan
-@router.post("/confirm-plan")
-@logging_decorator
-async def confirm_plan(
-    request: ConfirmPlanRequest,
-    current_user: dict = Depends(get_current_user)
+@router.post("/validate-plan")
+async def validate_plan(
+    request: ValidationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Confirm the execution plan"""
-    cached_data = redis_client.get(f"workflow:{request.session_id}")
-    if not cached_data:
-        raise HTTPException(status_code=400, detail="Session expired or invalid. Please create a new plan.")
-    
-    plan_data = json.loads(cached_data)
-
-    if not request.confirmed:
-        workflow_collection.update_one(
-            {"session_id": request.session_id},
-            {"$set": {"status": "rejected", "updated_at": datetime.utcnow()}}
-        )
-        redis_client.delete(f"workflow:{request.session_id}")
-        return {"message": "Plan rejected."}
-
-    workflow_collection.update_one(
-        {"session_id": request.session_id},
-        {"$set": {"status": "confirmed", "updated_at": datetime.utcnow()}}
-    )
-
-    # Get required functional inputs for tools (credentials are handled internally)
-    required_inputs = []
-    if plan_data.get("tool_calls"):
-        for call in plan_data["tool_calls"]:
-            # Assuming tool call structure has a 'name'
-            tool_name = call.get("name")
-            if tool_name:
-                required_fields = _get_tool_required_fields(tool_name)
-                if required_fields:
-                    required_inputs.append({
-                        "tool_name": tool_name,
-                        "required_fields": required_fields
-                    })
-    
-    return {
-        "message": "Plan confirmed. Provide the required inputs to execute.",
-        "required_inputs": required_inputs
-    }
-
-# Route 3: Execute workflow with inputs
-@router.post("/execute")
-@logging_decorator
-async def execute_workflow(
-    request: ExecuteWorkflowRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Execute the confirmed workflow with provided inputs"""
+    """Validate the execution plan with user"""
     try:
+        logger.info(f"Validating plan for session {request.session_id}")
+        
+        if not request.approved:
+            return {
+                "success": True,
+                "message": "Plan rejected by user",
+                "session_id": request.session_id
+            }
+        
         aws_graph = get_aws_graph()
-        # Get workflow data
-
-        workflow_data = workflow_collection.find_one({"session_id": request.session_id})
-        if not workflow_data:
-            raise HTTPException(status_code=404, detail="Workflow not found.")
         
-        if workflow_data["status"] != "confirmed":
-            raise HTTPException(status_code=400, detail="Workflow must be confirmed before execution.")
+        # Get current state from the graph
+        current_state = aws_graph.graph.get_state(
+            config={"configurable": {"thread_id": request.session_id}}
+        )
         
-        # Prepare state for execution, including credentials from the stored workflow
-        execution_state = GraphState(
-            messages=[HumanMessage(content=workflow_data["prompt"])],
-            session_id=request.session_id,
-            plan=workflow_data["plan"],
-            tool_calls=workflow_data["tool_calls"],
-            user_inputs=request.inputs,
-            credentials=workflow_data["credentials"], # Pass stored credentials
-            requires_validation=False
+        if not current_state:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Update state with user inputs
+        updated_state = current_state.values.copy()
+        if request.user_inputs:
+            updated_state["user_inputs"].update(request.user_inputs)
+        
+        # Continue from validation
+        result = await aws_graph.graph.ainvoke(
+            updated_state,
+            config={"configurable": {"thread_id": request.session_id}}
         )
-
-        config = {"configurable": {"thread_id": request.session_id}}
-        result = aws_graph.graph.invoke(execution_state, config)
-
-        workflow_collection.update_one(
-            {"session_id": request.session_id},
-            {"$set": {
-                "status": "completed",
-                "user_inputs": request.inputs,
-                "execution_results": result.get("execution_results", []),
-                "completed_at": datetime.utcnow()
-            }}
-        )
-
-        redis_client.delete(f"workflow:{request.session_id}")
         
         return {
-            "message": "Workflow executed successfully.",
-            "results": result.get("execution_results", [])
+            "success": True,
+            "validation_summary": "Plan approved and validated",
+            "session_id": request.session_id
         }
         
     except Exception as e:
-        logger.error(f"Workflow execution failed for session {request.session_id}: {e}", exc_info=True)
-        workflow_collection.update_one(
-            {"session_id": request.session_id},
-            {"$set": {"status": "failed", "error": str(e), "failed_at": datetime.utcnow()}}
+        logger.error(f"Plan validation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Plan validation failed: {str(e)}")
+
+@router.post("/execute-tools")
+async def execute_tools(
+    request: ExecutionRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Execute the planned tools"""
+    try:
+        logger.info(f"Executing tools for session {request.session_id}")
+        
+        aws_graph = get_aws_graph()
+        
+        # Get current state
+        current_state = aws_graph.graph.get_state(
+            config={"configurable": {"thread_id": request.session_id}}
         )
-        raise HTTPException(status_code=500, detail=f"Workflow execution failed: {str(e)}")
+        
+        if not current_state:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Update state with user inputs if provided
+        updated_state = current_state.values.copy()
+        if request.user_inputs:
+            updated_state["user_inputs"].update(request.user_inputs)
+        
+        # Continue execution
+        result = await aws_graph.graph.ainvoke(
+            updated_state,
+            config={"configurable": {"thread_id": request.session_id}}
+        )
+        
+        return {
+            "success": True,
+            "execution_results": result.get("execution_results", []),
+            "completion_summary": result.get("messages", [])[-1].content if result.get("messages") else "",
+            "session_id": request.session_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Tool execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
 
-# MODIFIED: Helper method no longer takes 'self' and doesn't ask for AWS keys
-def _get_tool_required_fields(tool_name: str) -> List[str]:
-    """Get USER-required functional fields for a specific tool. Credentials are handled by the system."""
-    tool_requirements = {
-        "create_s3_bucket": ["bucket_name", "region"],
-        "delete_s3_bucket": ["bucket_name"],
-        "set_s3_bucket_encryption": ["bucket_name", "encryption_type"],
-        "enable_s3_versioning": ["bucket_name", "status"],
-        "get_bucket_region": ["bucket_name"]
-    }
-    return tool_requirements.get(tool_name, [])
+@router.get("/session/{session_id}/status")
+async def get_session_status(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get the current status of a workflow session"""
+    try:
+        aws_graph = get_aws_graph()
+        
+        current_state = aws_graph.graph.get_state(
+            config={"configurable": {"thread_id": session_id}}
+        )
+        
+        if not current_state:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "current_node": current_state.next,
+            "state": {
+                "plan": current_state.values.get("plan"),
+                "tool_calls": current_state.values.get("tool_calls", []),
+                "requires_validation": current_state.values.get("requires_validation", False),
+                "execution_results": current_state.values.get("execution_results", [])
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get session status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get session status: {str(e)}")
 
-# Additional utility routes (Unchanged)
-@router.get("/status/{session_id}")
-async def get_workflow_status(session_id: str, current_user: dict = Depends(get_current_user)):
-    """Get workflow status"""
-    workflow_data = workflow_collection.find_one(
-        {"session_id": session_id, "user_email": current_user.email}
-    )
-    if not workflow_data:
-        raise HTTPException(status_code=404, detail="Workflow not found.")
-    
-    return {
-        "session_id": session_id,
-        "status": workflow_data["status"],
-        "plan": workflow_data.get("plan"),
-        "created_at": workflow_data.get("created_at"),
-        "results": workflow_data.get("execution_results", [])
-    }
+@router.delete("/session/{session_id}")
+async def delete_session(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Delete a workflow session"""
+    try:
+        # Note: LangGraph MemorySaver doesn't have a direct delete method
+        # In production, you might want to use a different checkpointer
+        # that supports session deletion
+        
+        return {
+            "success": True,
+            "message": f"Session {session_id} marked for deletion",
+            "session_id": session_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to delete session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+@router.post("/run-complete-workflow")
+async def run_complete_workflow(
+    request: PlanRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Run the complete workflow from start to finish"""
+    try:
+        logger.info(f"Running complete workflow for user {current_user.get('user_id')}")
+        
+        aws_graph = get_aws_graph()
+        
+        # Create initial state
+        initial_state = {
+            "messages": [HumanMessage(content=request.prompt)],
+            "session_id": request.session_id,
+            "plan": None,
+            "tool_calls": [],
+            "current_tool_index": 0,
+            "requires_validation": False,
+            "user_inputs": {},
+            "execution_results": []
+        }
+        
+        # Run the complete workflow
+        result = await aws_graph.graph.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": request.session_id}}
+        )
+        
+        return {
+            "success": True,
+            "plan": result.get("plan"),
+            "tool_calls": result.get("tool_calls", []),
+            "execution_results": result.get("execution_results", []),
+            "completion_summary": result.get("messages", [])[-1].content if result.get("messages") else "",
+            "session_id": request.session_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Complete workflow execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Complete workflow execution failed: {str(e)}")

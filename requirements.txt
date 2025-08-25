@@ -19,3 +19,4 @@ redis
 bcrypt
 langchain-google-genai
 langgraph[mongodb]
+langgraph-checkpoint-mongodb
