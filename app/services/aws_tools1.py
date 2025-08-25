@@ -99,9 +99,6 @@ class ListResourcesInRegionInput(BaseModel):
     AWS_ACCESS_KEY_ID: str = Field(..., description="AWS access key ID for authentication.")
     SECRET_KEY_ACCESS: str = Field(..., description="AWS secret access key for authentication.")
 
-
-
-
 class GetBucketRegionInput(BaseModel):
     """Input schema for getting the region of a specific S3 bucket."""
     aws_access_key_id: str = Field(..., description="AWS access key ID for authentication.")
@@ -1200,7 +1197,7 @@ def delete_ec2_instance(
     Terminates an EC2 instance by Name tag.
     """
     if not SECRET_KEY_ACCESS or not AWS_ACCESS_KEY_ID:
-        return "❌ 'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
+        return "'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
 
     # Create EC2 client inside the function with user-provided credentials
     ec2 = boto3.client(
@@ -1219,9 +1216,9 @@ def delete_ec2_instance(
         return f"✅ EC2 instance '{instance_name}' with ID '{instance_id}' is being terminated."
     
     except ValueError as ve:
-        return f"❌ {str(ve)}"
+        return f"An error occurred at : {str(ve)}"
     except Exception as e:
-        return f"❌ Error terminating EC2 instance: {str(e)}"
+        return f"Error terminating EC2 instance: {str(e)}"
 
 
 # --------------------------------------------------------------------------------
@@ -1249,7 +1246,7 @@ def create_rds_instance(
     Only essentials: db_instance_identifier, engine, master_username, master_user_password.
     """
     if not SECRET_KEY_ACCESS or not AWS_ACCESS_KEY_ID:
-        return "❌ 'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
+        return "'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
     rds = boto3.client(
     "rds",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -1258,11 +1255,11 @@ def create_rds_instance(
 )
 
     if not db_instance_identifier:
-        return "❌ 'db_instance_identifier' is required."
+        return "'db_instance_identifier' is required."
     if not master_username:
-        return "❌ 'master_username' is required."
+        return "'master_username' is required."
     if not master_user_password:
-        return "❌ 'master_user_password' is required."
+        return "'master_user_password' is required."
 
     try:
         response = rds.create_db_instance(
@@ -1277,10 +1274,10 @@ def create_rds_instance(
             StorageType=storage_type
         )
 
-        return f"✅ RDS instance '{db_instance_identifier}' is being created. Status: {response['DBInstance']['DBInstanceStatus']}"
+        return f"RDS instance '{db_instance_identifier}' is being created. Status: {response['DBInstance']['DBInstanceStatus']}"
 
     except Exception as e:
-        return f"❌ Error creating RDS instance: {str(e)}"
+        return f"Error creating RDS instance: {str(e)}"
 
 
 @tool("delete_rds_instance", return_direct=True)
@@ -1319,9 +1316,9 @@ def delete_rds_instance(
                 FinalDBSnapshotIdentifier=snapshot_id
             )
         status = response["DBInstance"]["DBInstanceStatus"]
-        return f"🗑️ Deletion initiated for RDS instance '{db_instance_identifier}'. Current status: {status}"
+        return f"Deletion initiated for RDS instance '{db_instance_identifier}'. Current status: {status}"
     except Exception as e:
-        return f"❌ Error deleting RDS instance: {str(e)}"
+        return f"Error deleting RDS instance: {str(e)}"
 
 #===================================================================
 #REsource Explorer
@@ -1342,9 +1339,9 @@ def list_resources_in_region(
     Returns a newline-separated string of resource ARNs.
     """
     if not SECRET_KEY_ACCESS or not AWS_ACCESS_KEY_ID:
-        return "❌ 'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
+        return "'AWS_ACCESS_KEY_ID' and 'SECRET_KEY_ACCESS' are required."
     if not region:
-        return "❌ 'region' is required. Example: 'ap-south-1'"
+        return "'region' is required. Example: 'ap-south-1'"
 
     try:
         # Initialize Resource Explorer client for the specified region
@@ -1364,9 +1361,9 @@ def list_resources_in_region(
                 resources.append(resource["Arn"])
 
         if not resources:
-            return f"✅ No active resources found in region '{region}'."
+            return f"No active resources found in region '{region}'."
 
         return "\n".join(resources)
 
     except Exception as e:
-        return f"❌ Error fetching resources in region '{region}': {str(e)}"
+        return f"Error fetching resources in region '{region}': {str(e)}"

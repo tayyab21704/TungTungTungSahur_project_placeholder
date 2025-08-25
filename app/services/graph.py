@@ -13,6 +13,7 @@ from app.utils.logging_decorator import logging_decorator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 import re
+from app.services.tool_mapping import map_tool_to_args
 
 load_dotenv()
 
@@ -213,7 +214,8 @@ class AWSWorkflowGraph:
         Always returns list of dicts with keys: name, arguments, requires_input.
         """
         tool_objects = get_all_aws_tools()
-        available_tool_names = [t.name for t in tool_objects]
+        # available_tool_names = [t.name for t in tool_objects]
+        available_tool_names = [getattr(tool, "name", str(tool)) for tool in tool_objects]
     
         tool_calls: List[Dict[str, Any]] = []
     
@@ -229,9 +231,12 @@ class AWSWorkflowGraph:
             if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
                 for name in parsed:
                     if name in available_tool_names:
+                        # Access the arguments schema
+                        args_schema = getattr(name, "args_schema", None)
+                        print("args = -------------", args_schema)
                         tool_calls.append({
                             "name": name,
-                            "arguments": {},
+                            "arguments": map_tool_to_args(name),
                             "requires_input": self._tool_requires_user_input(name)
                         })
         except Exception:
@@ -240,7 +245,7 @@ class AWSWorkflowGraph:
                 if re.search(rf"\b{re.escape(name)}\b", raw_text, re.IGNORECASE):
                     tool_calls.append({
                         "name": name,
-                        "arguments": {},
+                        "arguments": map_tool_to_args(name),
                         "requires_input": self._tool_requires_user_input(name)
                     })
     
